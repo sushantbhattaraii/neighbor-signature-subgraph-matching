@@ -6,29 +6,31 @@
   <style>
     body { font-family: Arial, sans-serif; margin: 24px; }
     textarea { width: 100%; height: 120px; }
-    input[type="text"], input[type="number"] { width: 100%; padding: 8px; }
+    input[type="text"], input[type="number"], select { width: 100%; padding: 8px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
     .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-top: 16px; }
     img { max-width: 100%; border: 1px solid #ddd; border-radius: 8px; }
     table { border-collapse: collapse; width: 100%; }
     td, th { border: 1px solid #ddd; padding: 8px; text-align: left; }
-    .actions button { margin-right: 12px; }
+    .actions button { margin-right: 12px; margin-bottom: 8px; }
     .muted { color: #666; }
     pre { white-space: pre-wrap; word-wrap: break-word; }
+    .success { color: #0a6; }
+    .error { color: #a00; }
   </style>
 </head>
 <body>
   <h1>NeighborSig-Match</h1>
   <p>Enter query nodes as <code>nodeId,label</code> and edges as <code>src,dst,label</code>.</p>
 
-  <form method="post">
+  <form method="post" enctype="multipart/form-data">
     <div class="grid">
       <div class="card">
-        <h3>Nodes</h3>
+        <h3>Query nodes</h3>
         <textarea name="nodes">{{ result.nodes }}</textarea>
       </div>
       <div class="card">
-        <h3>Edges</h3>
+        <h3>Query edges</h3>
         <textarea name="edges">{{ result.edges }}</textarea>
       </div>
     </div>
@@ -72,7 +74,49 @@
         <p class="muted">The GUI uploads the typed query to this HDFS path before running Hadoop.</p>
       </div>
     </div>
+
+    <div class="card">
+      <h3>Dataset upload and preprocessing</h3>
+      <p>
+        <label>Select SNAP edge-list file (.txt or .txt.gz)</label>
+        <input type="file" name="dataset_file">
+      </p>
+      <div class="grid">
+        <div>
+          <label>Dataset name</label>
+          <input type="text" name="dataset_name" value="{{ result.dataset_name }}">
+        </div>
+        <div>
+          <label>Number of synthetic labels</label>
+          <input type="number" name="num_labels" value="{{ result.num_labels }}" min="1">
+        </div>
+      </div>
+      <div class="grid">
+        <div>
+          <label>Subset nodes (optional: 10000, 100000, 1000000)</label>
+          <input type="number" name="subset_nodes" value="{{ result.subset_nodes }}">
+        </div>
+        <div>
+          <label><input type="checkbox" name="dataset_directed" {% if result.dataset_directed %}checked{% endif %}> Treat uploaded dataset as directed</label>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="submit" name="action" value="upload_dataset">Upload + Convert + Put into HDFS</button>
+      </div>
+      <p class="muted">This converts the uploaded SNAP edge list to the project adjacency format, optionally samples a smaller subset, and uploads it to <code>{{ result.adj_dir }}/part-00000</code>.</p>
+    </div>
   </form>
+
+  {% if result.upload_status %}
+    <div class="card success">
+      <h3>Dataset upload completed</h3>
+      <table>
+        <tr><th>Local uploaded file</th><td>{{ result.upload_status.local_uploaded_file }}</td></tr>
+        <tr><th>Local processed file</th><td>{{ result.upload_status.local_processed_file }}</td></tr>
+        <tr><th>HDFS target</th><td>{{ result.upload_status.hdfs_target }}</td></tr>
+      </table>
+    </div>
+  {% endif %}
 
   {% if result.query_png %}
     <div class="grid">
@@ -146,8 +190,45 @@
     </div>
   {% endif %}
 
+  <div class="card">
+    <h3>Recent run history</h3>
+    <p><a href="/history.csv">Download history CSV</a></p>
+    {% if result.history_rows %}
+      <table>
+        <tr>
+          <th>Timestamp</th>
+          <th>Dataset HDFS Dir</th>
+          <th>Query Nodes</th>
+          <th>Method</th>
+          <th>k</th>
+          <th>Candidates</th>
+          <th>Matches</th>
+          <th>Candidate Reduction</th>
+          <th>Pruning Ratio</th>
+          <th>Runtime (s)</th>
+        </tr>
+        {% for row in result.history_rows %}
+          <tr>
+            <td>{{ row.timestamp }}</td>
+            <td>{{ row.dataset_hdfs_dir }}</td>
+            <td>{{ row.query_nodes }}</td>
+            <td>{{ row.method }}</td>
+            <td>{{ row.k }}</td>
+            <td>{{ row.candidates }}</td>
+            <td>{{ row.matches }}</td>
+            <td>{{ row.candidate_reduction }}</td>
+            <td>{{ row.pruning_ratio }}</td>
+            <td>{{ row.runtime_sec }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p>No run history yet.</p>
+    {% endif %}
+  </div>
+
   {% if result.error %}
-    <div class="card" style="color: #a00;">
+    <div class="card error">
       <h3>Error</h3>
       <pre>{{ result.error }}</pre>
     </div>
