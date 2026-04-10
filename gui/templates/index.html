@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>NeighborSig-Match GUI</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    textarea { width: 100%; height: 120px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
+    img { max-width: 100%; border: 1px solid #ddd; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { border: 1px solid #ddd; padding: 8px; }
+  </style>
+</head>
+<body>
+  <h1>NeighborSig-Match</h1>
+  <p>Enter query nodes as <code>nodeId,label</code> and edges as <code>src,dst,label</code>.</p>
+
+  <form method="post">
+    <div class="grid">
+      <div class="card">
+        <h3>Nodes</h3>
+        <textarea name="nodes">{{ result.nodes if result else 'q0,L0\nq1,L1\nq2,L2' }}</textarea>
+      </div>
+      <div class="card">
+        <h3>Edges</h3>
+        <textarea name="edges">{{ result.edges if result else 'q0,q1,E\nq1,q2,E' }}</textarea>
+      </div>
+    </div>
+    <div class="card" style="margin-top: 16px;">
+      <label><input type="checkbox" name="directed"> Directed query</label>
+      <label style="margin-left: 16px;">Mode:
+        <select name="mode">
+          <option value="signature">k-hop signature</option>
+          <option value="baseline">degree + label baseline</option>
+        </select>
+      </label>
+      <label style="margin-left: 16px;">k:
+        <input type="number" name="k" value="{{ result.k if result else '2' }}" min="1" max="2">
+      </label>
+      <label style="margin-left: 16px;"><input type="checkbox" name="run_backend" value="yes"> Run Hadoop backend</label>
+      <button type="submit" style="margin-left: 16px;">Submit</button>
+    </div>
+  </form>
+
+  {% if result %}
+    <div class="grid" style="margin-top: 24px;">
+      <div class="card">
+        <h3>Query graph</h3>
+        <img src="/{{ result.query_png }}" alt="Query graph">
+      </div>
+      <div class="card">
+        <h3>Example match view</h3>
+        {% if result.match_png %}
+          <img src="/{{ result.match_png }}" alt="Example match">
+        {% else %}
+          <p>No match image yet. Enable backend execution to populate this.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if result.metrics %}
+      <div class="card" style="margin-top: 24px;">
+        <h3>Metrics</h3>
+        <table>
+          <tr><th>CPU time (sec)</th><td>{{ result.metrics.cpu_time_sec }}</td></tr>
+          <tr><th>Candidate count after pruning</th><td>{{ result.metrics.candidate_count_after }}</td></tr>
+          <tr><th>Valid match count</th><td>{{ result.metrics.match_count }}</td></tr>
+          <tr><th>Example mapping</th><td>{{ result.metrics.match_example }}</td></tr>
+        </table>
+      </div>
+    {% endif %}
+
+    {% if result.error %}
+      <div class="card" style="margin-top: 24px; color: #a00;">
+        <h3>Error</h3>
+        <pre>{{ result.error }}</pre>
+      </div>
+    {% endif %}
+  {% endif %}
+</body>
+</html>

@@ -1,0 +1,6 @@
+directed=false
+v q0 L0
+v q1 L1
+v q2 L2
+e q0 q1 E
+e q1 q2 E
