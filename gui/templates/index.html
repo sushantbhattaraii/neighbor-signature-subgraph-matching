@@ -7,6 +7,7 @@
     body { font-family: Arial, sans-serif; margin: 24px; }
     textarea { width: 100%; height: 120px; }
     input[type="text"], input[type="number"], select { width: 100%; padding: 8px; }
+    select[multiple] { height: 140px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
     .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-top: 16px; }
     img { max-width: 100%; border: 1px solid #ddd; border-radius: 8px; }
@@ -87,6 +88,24 @@
     </div>
 
     <div class="card">
+      <h3>Batch experiment mode</h3>
+      <p>
+        <label>Select up to 3 registered HDFS dataset/subset directories</label>
+        <select name="batch_selected_dirs" multiple>
+          {% for row in result.dataset_rows %}
+            <option value="{{ row.hdfs_dir }}" {% if row.hdfs_dir in result.batch_selected_dirs %}selected{% endif %}>
+              {{ row.dataset_name }} | {{ row.label }} | {{ row.hdfs_dir }}
+            </option>
+          {% endfor %}
+        </select>
+      </p>
+      <div class="actions">
+        <button type="submit" name="action" value="run_batch_compare">Run Batch on Selected Subsets</button>
+      </div>
+      <p class="muted">This runs baseline, k=1, and k=2 for each selected subset and appends all results to history.</p>
+    </div>
+
+    <div class="card">
       <h3>Dataset upload and subset generation</h3>
       <p>
         <label>Select SNAP edge-list file (.txt or .txt.gz)</label>
@@ -144,7 +163,7 @@
           </tr>
         {% endfor %}
       </table>
-      <p class="muted">These directories are also added to the dropdown selector above.</p>
+      <p class="muted">These directories are also added to the dropdown selector and batch selector above.</p>
     </div>
   {% endif %}
 
@@ -206,15 +225,32 @@
         {% endfor %}
       </table>
     </div>
+  {% endif %}
 
+  {% if result.batch_rows %}
     <div class="card">
-      <h3>Example mappings</h3>
+      <h3>Batch experiment results</h3>
       <table>
-        <tr><th>Method</th><th>Example mapping</th></tr>
-        {% for row in result.comparison_rows %}
+        <tr>
+          <th>Dataset HDFS Dir</th>
+          <th>Method</th>
+          <th>k</th>
+          <th>Candidates</th>
+          <th>Matches</th>
+          <th>Candidate Reduction</th>
+          <th>Pruning Ratio (%)</th>
+          <th>Runtime (s)</th>
+        </tr>
+        {% for row in result.batch_rows %}
           <tr>
-            <td>{{ row.label }}</td>
-            <td>{{ row.match_example }}</td>
+            <td>{{ row.dataset_dir }}</td>
+            <td>{{ row.method }}</td>
+            <td>{{ row.k }}</td>
+            <td>{{ row.candidates }}</td>
+            <td>{{ row.matches }}</td>
+            <td>{{ row.candidate_reduction }}</td>
+            <td>{{ row.pruning_ratio }}</td>
+            <td>{{ row.runtime }}</td>
           </tr>
         {% endfor %}
       </table>

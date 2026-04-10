@@ -34,6 +34,12 @@ def sanitize_name(text: str) -> str:
     return text or 'dataset'
 
 
+def safe_tag_from_hdfs_dir(hdfs_dir: str) -> str:
+    tag = hdfs_dir.strip().strip('/').replace('/', '_')
+    tag = re.sub(r'[^A-Za-z0-9._-]+', '_', tag)
+    return tag or 'dataset'
+
+
 def parse_subset_sizes(text: str):
     text = (text or '').strip()
     if not text:
@@ -485,6 +491,7 @@ def index():
         'k': '2',
         'adj_dir': default_adj_dir,
         'selected_adj_dir': '',
+        'batch_selected_dirs': [],
         'base_out': default_base_out,
         'hdfs_query_path': default_hdfs_query_path,
         'dataset_name': 'uploaded_dataset',
@@ -495,6 +502,7 @@ def index():
         'match_png': None,
         'single_metrics': None,
         'comparison_rows': None,
+        'batch_rows': None,
         'upload_status': None,
         'error': None,
         'stdout': None,
@@ -510,6 +518,7 @@ def index():
         result['k'] = request.form.get('k', '2')
         result['adj_dir'] = request.form.get('adj_dir', default_adj_dir).strip()
         result['selected_adj_dir'] = request.form.get('selected_adj_dir', '').strip()
+        result['batch_selected_dirs'] = request.form.getlist('batch_selected_dirs')
         if result['selected_adj_dir']:
             result['adj_dir'] = result['selected_adj_dir']
         result['base_out'] = request.form.get('base_out', default_base_out).strip()
@@ -659,6 +668,88 @@ def index():
                 if best['match_example']:
                     match_png = STATIC_DIR / 'match.png'
                     render_real_match_context(result['adj_dir'], best['match_example'], match_png)
+                    result['match_png'] = 'static/match.png'
+
+            elif action == 'run_batch_compare':
+                selected_dirs = result['batch_selected_dirs']
+                if not selected_dirs:
+                    raise RuntimeError('Please choose at least one registered dataset/subset for batch mode.')
+                if len(selected_dirs) > 3:
+                    raise RuntimeError('Please select at most 3 dataset/subset directories for batch mode.')
+
+                batch_rows = []
+                batch_stdout_parts = []
+                last_match_mapping = None
+                last_match_dir = None
+
+                for dataset_dir in selected_dirs:
+                    tag = safe_tag_from_hdfs_dir(dataset_dir)
+                    runs = []
+                    runs.append(run_pipeline_once(
+                        dataset_dir,
+                        result['hdfs_query_path'],
+                        f"{result['base_out']}/batch_{tag}/baseline",
+                        'baseline',
+                        2,
+                        jar_path,
+                    ))
+                    runs.append(run_pipeline_once(
+                        dataset_dir,
+                        result['hdfs_query_path'],
+                        f"{result['base_out']}/batch_{tag}/signature_k1",
+                        'signature',
+                        1,
+                        jar_path,
+                    ))
+                    runs.append(run_pipeline_once(
+                        dataset_dir,
+                        result['hdfs_query_path'],
+                        f"{result['base_out']}/batch_{tag}/signature_k2",
+                        'signature',
+                        2,
+                        jar_path,
+                    ))
+
+                    baseline_candidates = runs[0]['candidate_count']
+                    for row in runs:
+                        label = 'Baseline' if row['mode'] == 'baseline' else f"Signature (k={row['k']})"
+                        reduction = 0 if row['mode'] == 'baseline' else candidate_reduction(baseline_candidates, row['candidate_count'])
+                        ratio = 0.0 if row['mode'] == 'baseline' else pruning_ratio(baseline_candidates, row['candidate_count'])
+
+                        batch_rows.append({
+                            'dataset_dir': dataset_dir,
+                            'method': label,
+                            'k': '-' if row['mode'] == 'baseline' else row['k'],
+                            'candidates': row['candidate_count'],
+                            'matches': row['match_count'],
+                            'candidate_reduction': reduction,
+                            'pruning_ratio': ratio,
+                            'runtime': row['cpu_time_sec'],
+                        })
+
+                        append_history_row([
+                            datetime.now().isoformat(timespec='seconds'),
+                            dataset_dir,
+                            count_query_nodes(result['nodes']),
+                            row['mode'],
+                            row['k'],
+                            row['candidate_count'],
+                            row['match_count'],
+                            reduction,
+                            ratio,
+                            row['cpu_time_sec'],
+                        ])
+
+                        batch_stdout_parts.append(row['stdout'])
+
+                    last_match_mapping = runs[-1]['match_example']
+                    last_match_dir = dataset_dir
+
+                result['batch_rows'] = batch_rows
+                result['stdout'] = "\n\n".join(batch_stdout_parts)
+                if last_match_mapping and last_match_dir:
+                    match_png = STATIC_DIR / 'match.png'
+                    render_real_match_context(last_match_dir, last_match_mapping, match_png)
                     result['match_png'] = 'static/match.png'
 
             result['history_rows'] = load_history()
