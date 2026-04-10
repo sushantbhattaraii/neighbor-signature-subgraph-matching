@@ -33,6 +33,24 @@ def sanitize_name(text: str) -> str:
     return text or 'dataset'
 
 
+def parse_subset_sizes(text: str):
+    text = (text or '').strip()
+    if not text:
+        return []
+    parts = [p.strip() for p in text.split(',') if p.strip()]
+    if len(parts) > 3:
+        raise ValueError('Please provide at most 3 subset sizes, separated by commas.')
+    sizes = []
+    for p in parts:
+        value = int(p)
+        if value <= 0:
+            raise ValueError('Subset sizes must be positive integers.')
+        sizes.append(value)
+    if len(set(sizes)) != len(sizes):
+        raise ValueError('Subset sizes must be unique.')
+    return sizes
+
+
 def parse_query_form(nodes_text: str, edges_text: str, directed: bool):
     node_lines = [x.strip() for x in nodes_text.splitlines() if x.strip()]
     edge_lines = [x.strip() for x in edges_text.splitlines() if x.strip()]
@@ -217,7 +235,7 @@ def count_query_nodes(nodes_text: str) -> int:
     return len([x for x in nodes_text.splitlines() if x.strip()])
 
 
-def preprocess_and_upload_dataset(file_storage, dataset_name, dataset_directed, num_labels, subset_nodes, adj_dir):
+def preprocess_and_upload_dataset(file_storage, dataset_name, dataset_directed, num_labels, subset_sizes, adj_dir):
     safe_name = sanitize_name(dataset_name or Path(file_storage.filename).stem)
     upload_path = UPLOADS_DIR / file_storage.filename
     file_storage.save(upload_path)
@@ -236,28 +254,46 @@ def preprocess_and_upload_dataset(file_storage, dataset_name, dataset_directed, 
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr or proc.stdout)
 
-    final_path = converted_path
-    subset_nodes = int(subset_nodes) if str(subset_nodes).strip() else 0
-    if subset_nodes > 0:
-        subset_path = GENERATED_DIR / f'{safe_name}_{subset_nodes}.adj'
+    created_targets = []
+
+    # upload full converted dataset to the selected main adjacency dir
+    full_hdfs_target = f"{adj_dir.rstrip('/')}/part-00000"
+    hdfs_put_file(converted_path, full_hdfs_target)
+    created_targets.append({
+        'label': 'full',
+        'nodes': 'full',
+        'local_processed_file': str(converted_path),
+        'hdfs_dir': adj_dir.rstrip('/'),
+        'hdfs_target': full_hdfs_target,
+    })
+
+    for size in subset_sizes:
+        subset_path = GENERATED_DIR / f'{safe_name}_{size}.adj'
         sample_cmd = [
             'python', str(PROJECT_ROOT / 'scripts' / 'sample_subgraph.py'),
             '--input', str(converted_path),
             '--output', str(subset_path),
-            '--max-nodes', str(subset_nodes),
+            '--max-nodes', str(size),
         ]
         proc2 = run_cmd(sample_cmd, cwd=PROJECT_ROOT)
         if proc2.returncode != 0:
             raise RuntimeError(proc2.stderr or proc2.stdout)
-        final_path = subset_path
 
-    hdfs_target = f"{adj_dir.rstrip('/')}/part-00000"
-    hdfs_put_file(final_path, hdfs_target)
+        subset_hdfs_dir = f"{adj_dir.rstrip('/')}_{size}"
+        subset_hdfs_target = f"{subset_hdfs_dir}/part-00000"
+        hdfs_put_file(subset_path, subset_hdfs_target)
+
+        created_targets.append({
+            'label': f'subset_{size}',
+            'nodes': size,
+            'local_processed_file': str(subset_path),
+            'hdfs_dir': subset_hdfs_dir,
+            'hdfs_target': subset_hdfs_target,
+        })
 
     return {
         'local_uploaded_file': str(upload_path),
-        'local_processed_file': str(final_path),
-        'hdfs_target': hdfs_target,
+        'created_targets': created_targets,
     }
 
 
@@ -403,7 +439,7 @@ def index():
         'dataset_name': 'uploaded_dataset',
         'dataset_directed': False,
         'num_labels': '8',
-        'subset_nodes': '',
+        'subset_sizes': '1000,2000,3000',
         'query_png': None,
         'match_png': None,
         'single_metrics': None,
@@ -426,7 +462,7 @@ def index():
         result['dataset_name'] = request.form.get('dataset_name', 'uploaded_dataset').strip()
         result['dataset_directed'] = request.form.get('dataset_directed') == 'on'
         result['num_labels'] = request.form.get('num_labels', '8').strip()
-        result['subset_nodes'] = request.form.get('subset_nodes', '').strip()
+        result['subset_sizes'] = request.form.get('subset_sizes', '1000,2000,3000').strip()
         action = request.form.get('action', 'draw_only')
 
         query_text = parse_query_form(result['nodes'], result['edges'], result['directed'])
@@ -445,12 +481,13 @@ def index():
                 file_storage = request.files.get('dataset_file')
                 if not file_storage or not file_storage.filename:
                     raise RuntimeError('Please choose a dataset file first.')
+                subset_sizes = parse_subset_sizes(result['subset_sizes'])
                 upload_info = preprocess_and_upload_dataset(
                     file_storage=file_storage,
                     dataset_name=result['dataset_name'],
                     dataset_directed=result['dataset_directed'],
                     num_labels=int(result['num_labels']),
-                    subset_nodes=result['subset_nodes'],
+                    subset_sizes=subset_sizes,
                     adj_dir=result['adj_dir'],
                 )
                 result['upload_status'] = upload_info

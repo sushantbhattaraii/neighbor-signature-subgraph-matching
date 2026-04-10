@@ -71,12 +71,12 @@
           <label>HDFS GUI query path</label>
           <input type="text" name="hdfs_query_path" value="{{ result.hdfs_query_path }}">
         </p>
-        <p class="muted">The GUI uploads the typed query to this HDFS path before running Hadoop.</p>
+        <p class="muted">To run on a subset, paste one of the generated subset HDFS directories here.</p>
       </div>
     </div>
 
     <div class="card">
-      <h3>Dataset upload and preprocessing</h3>
+      <h3>Dataset upload and subset generation</h3>
       <p>
         <label>Select SNAP edge-list file (.txt or .txt.gz)</label>
         <input type="file" name="dataset_file">
@@ -93,17 +93,17 @@
       </div>
       <div class="grid">
         <div>
-          <label>Subset nodes (optional: 10000, 100000, 1000000)</label>
-          <input type="number" name="subset_nodes" value="{{ result.subset_nodes }}">
+          <label>Subset sizes (at most 3, comma-separated)</label>
+          <input type="text" name="subset_sizes" value="{{ result.subset_sizes }}">
         </div>
         <div>
           <label><input type="checkbox" name="dataset_directed" {% if result.dataset_directed %}checked{% endif %}> Treat uploaded dataset as directed</label>
         </div>
       </div>
       <div class="actions">
-        <button type="submit" name="action" value="upload_dataset">Upload + Convert + Put into HDFS</button>
+        <button type="submit" name="action" value="upload_dataset">Upload + Convert + Build Subsets</button>
       </div>
-      <p class="muted">This converts the uploaded SNAP edge list to the project adjacency format, optionally samples a smaller subset, and uploads it to <code>{{ result.adj_dir }}/part-00000</code>.</p>
+      <p class="muted">Example: <code>1000,2000,3000</code>. The full converted dataset goes to <code>{{ result.adj_dir }}</code>, and each subset goes to its own directory like <code>{{ result.adj_dir }}_1000</code>.</p>
     </div>
   </form>
 
@@ -112,9 +112,28 @@
       <h3>Dataset upload completed</h3>
       <table>
         <tr><th>Local uploaded file</th><td>{{ result.upload_status.local_uploaded_file }}</td></tr>
-        <tr><th>Local processed file</th><td>{{ result.upload_status.local_processed_file }}</td></tr>
-        <tr><th>HDFS target</th><td>{{ result.upload_status.hdfs_target }}</td></tr>
       </table>
+
+      <h4>Created HDFS datasets</h4>
+      <table>
+        <tr>
+          <th>Type</th>
+          <th>Nodes</th>
+          <th>Local processed file</th>
+          <th>HDFS directory</th>
+          <th>HDFS target</th>
+        </tr>
+        {% for item in result.upload_status.created_targets %}
+          <tr>
+            <td>{{ item.label }}</td>
+            <td>{{ item.nodes }}</td>
+            <td>{{ item.local_processed_file }}</td>
+            <td>{{ item.hdfs_dir }}</td>
+            <td>{{ item.hdfs_target }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+      <p class="muted">Copy any <strong>HDFS directory</strong> above into the “HDFS adjacency directory” field to run experiments on that specific subset.</p>
     </div>
   {% endif %}
 
