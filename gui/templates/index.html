@@ -60,6 +60,17 @@
       <div class="card">
         <h3>Hadoop / HDFS paths</h3>
         <p>
+          <label>Choose registered HDFS dataset/subset</label>
+          <select name="selected_adj_dir">
+            <option value="">-- keep manual path below --</option>
+            {% for row in result.dataset_rows %}
+              <option value="{{ row.hdfs_dir }}" {% if result.selected_adj_dir == row.hdfs_dir %}selected{% endif %}>
+                {{ row.dataset_name }} | {{ row.label }} | {{ row.hdfs_dir }}
+              </option>
+            {% endfor %}
+          </select>
+        </p>
+        <p>
           <label>HDFS adjacency directory</label>
           <input type="text" name="adj_dir" value="{{ result.adj_dir }}">
         </p>
@@ -71,7 +82,7 @@
           <label>HDFS GUI query path</label>
           <input type="text" name="hdfs_query_path" value="{{ result.hdfs_query_path }}">
         </p>
-        <p class="muted">To run on a subset, paste one of the generated subset HDFS directories here.</p>
+        <p class="muted">If you choose a dataset/subset from the dropdown, it overrides the manual HDFS adjacency path for this run.</p>
       </div>
     </div>
 
@@ -133,7 +144,7 @@
           </tr>
         {% endfor %}
       </table>
-      <p class="muted">Copy any <strong>HDFS directory</strong> above into the “HDFS adjacency directory” field to run experiments on that specific subset.</p>
+      <p class="muted">These directories are also added to the dropdown selector above.</p>
     </div>
   {% endif %}
 
@@ -209,6 +220,30 @@
       </table>
     </div>
   {% endif %}
+
+  <div class="card">
+    <h3>Registered HDFS datasets/subsets</h3>
+    {% if result.dataset_rows %}
+      <table>
+        <tr>
+          <th>Dataset Name</th>
+          <th>Type</th>
+          <th>Nodes</th>
+          <th>HDFS Directory</th>
+        </tr>
+        {% for row in result.dataset_rows %}
+          <tr>
+            <td>{{ row.dataset_name }}</td>
+            <td>{{ row.label }}</td>
+            <td>{{ row.nodes }}</td>
+            <td>{{ row.hdfs_dir }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p>No registered datasets yet.</p>
+    {% endif %}
+  </div>
 
   <div class="card">
     <h3>Recent run history</h3>

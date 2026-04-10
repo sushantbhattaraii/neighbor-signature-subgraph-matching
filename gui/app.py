@@ -20,6 +20,7 @@ STATIC_DIR = APP_ROOT / 'static'
 GENERATED_DIR = APP_ROOT / 'generated'
 UPLOADS_DIR = APP_ROOT / 'uploads'
 HISTORY_CSV = GENERATED_DIR / 'run_history.csv'
+DATASET_REGISTRY_CSV = GENERATED_DIR / 'dataset_registry.csv'
 
 for d in [STATIC_DIR, GENERATED_DIR, UPLOADS_DIR]:
     d.mkdir(exist_ok=True)
@@ -231,6 +232,54 @@ def load_history(limit=20):
     return rows[:limit]
 
 
+def ensure_dataset_registry_header():
+    if DATASET_REGISTRY_CSV.exists():
+        return
+    with open(DATASET_REGISTRY_CSV, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            'timestamp', 'dataset_name', 'label', 'nodes',
+            'hdfs_dir', 'hdfs_target', 'local_processed_file'
+        ])
+
+
+def append_dataset_registry_rows(dataset_name, created_targets):
+    ensure_dataset_registry_header()
+    timestamp = datetime.now().isoformat(timespec='seconds')
+    with open(DATASET_REGISTRY_CSV, 'a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        for item in created_targets:
+            writer.writerow([
+                timestamp,
+                dataset_name,
+                item['label'],
+                item['nodes'],
+                item['hdfs_dir'],
+                item['hdfs_target'],
+                item['local_processed_file'],
+            ])
+
+
+def load_dataset_registry():
+    if not DATASET_REGISTRY_CSV.exists():
+        return []
+    rows = []
+    with open(DATASET_REGISTRY_CSV, 'r', newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    rows.reverse()
+
+    seen = set()
+    unique_rows = []
+    for row in rows:
+        key = row['hdfs_dir']
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_rows.append(row)
+    return unique_rows
+
+
 def count_query_nodes(nodes_text: str) -> int:
     return len([x for x in nodes_text.splitlines() if x.strip()])
 
@@ -256,7 +305,6 @@ def preprocess_and_upload_dataset(file_storage, dataset_name, dataset_directed, 
 
     created_targets = []
 
-    # upload full converted dataset to the selected main adjacency dir
     full_hdfs_target = f"{adj_dir.rstrip('/')}/part-00000"
     hdfs_put_file(converted_path, full_hdfs_target)
     created_targets.append({
@@ -290,6 +338,8 @@ def preprocess_and_upload_dataset(file_storage, dataset_name, dataset_directed, 
             'hdfs_dir': subset_hdfs_dir,
             'hdfs_target': subset_hdfs_target,
         })
+
+    append_dataset_registry_rows(safe_name, created_targets)
 
     return {
         'local_uploaded_file': str(upload_path),
@@ -434,6 +484,7 @@ def index():
         'mode': 'signature',
         'k': '2',
         'adj_dir': default_adj_dir,
+        'selected_adj_dir': '',
         'base_out': default_base_out,
         'hdfs_query_path': default_hdfs_query_path,
         'dataset_name': 'uploaded_dataset',
@@ -448,6 +499,7 @@ def index():
         'error': None,
         'stdout': None,
         'history_rows': load_history(),
+        'dataset_rows': load_dataset_registry(),
     }
 
     if request.method == 'POST':
@@ -457,6 +509,9 @@ def index():
         result['mode'] = request.form.get('mode', 'signature')
         result['k'] = request.form.get('k', '2')
         result['adj_dir'] = request.form.get('adj_dir', default_adj_dir).strip()
+        result['selected_adj_dir'] = request.form.get('selected_adj_dir', '').strip()
+        if result['selected_adj_dir']:
+            result['adj_dir'] = result['selected_adj_dir']
         result['base_out'] = request.form.get('base_out', default_base_out).strip()
         result['hdfs_query_path'] = request.form.get('hdfs_query_path', default_hdfs_query_path).strip()
         result['dataset_name'] = request.form.get('dataset_name', 'uploaded_dataset').strip()
@@ -474,6 +529,7 @@ def index():
         result['query_png'] = 'static/query.png'
 
         if action == 'draw_only':
+            result['dataset_rows'] = load_dataset_registry()
             return render_template('index.html', result=result)
 
         if action == 'upload_dataset':
@@ -492,15 +548,18 @@ def index():
                 )
                 result['upload_status'] = upload_info
                 result['history_rows'] = load_history()
+                result['dataset_rows'] = load_dataset_registry()
                 return render_template('index.html', result=result)
             except Exception as e:
                 result['error'] = str(e)
+                result['dataset_rows'] = load_dataset_registry()
                 return render_template('index.html', result=result)
 
         try:
             hdfs_put_file(query_path, result['hdfs_query_path'])
         except Exception as e:
             result['error'] = f'Failed to upload GUI query to HDFS: {e}'
+            result['dataset_rows'] = load_dataset_registry()
             return render_template('index.html', result=result)
 
         jar_path = default_jar_path
@@ -603,9 +662,11 @@ def index():
                     result['match_png'] = 'static/match.png'
 
             result['history_rows'] = load_history()
+            result['dataset_rows'] = load_dataset_registry()
 
         except Exception as e:
             result['error'] = str(e)
+            result['dataset_rows'] = load_dataset_registry()
 
     return render_template('index.html', result=result)
 
