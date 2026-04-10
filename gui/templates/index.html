@@ -194,6 +194,8 @@
         <tr><th>CPU time (sec)</th><td>{{ result.single_metrics.cpu_time_sec }}</td></tr>
         <tr><th>Candidate count</th><td>{{ result.single_metrics.candidate_count }}</td></tr>
         <tr><th>Match count</th><td>{{ result.single_metrics.match_count }}</td></tr>
+        <tr><th>Map Output Bytes</th><td>{{ result.single_metrics.map_output_bytes }}</td></tr>
+        <tr><th>Reduce Shuffle Bytes</th><td>{{ result.single_metrics.reduce_shuffle_bytes }}</td></tr>
         <tr><th>Example mapping</th><td>{{ result.single_metrics.match_example }}</td></tr>
       </table>
     </div>
@@ -211,6 +213,8 @@
           <th>Candidate Reduction</th>
           <th>Pruning Ratio (%)</th>
           <th>Runtime (s)</th>
+          <th>Map Output Bytes</th>
+          <th>Reduce Shuffle Bytes</th>
         </tr>
         {% for row in result.comparison_rows %}
           <tr>
@@ -221,6 +225,8 @@
             <td>{{ row.candidate_reduction }}</td>
             <td>{{ row.pruning_ratio }}</td>
             <td>{{ row.runtime }}</td>
+            <td>{{ row.map_output_bytes }}</td>
+            <td>{{ row.reduce_shuffle_bytes }}</td>
           </tr>
         {% endfor %}
       </table>
@@ -240,6 +246,8 @@
           <th>Candidate Reduction</th>
           <th>Pruning Ratio (%)</th>
           <th>Runtime (s)</th>
+          <th>Map Output Bytes</th>
+          <th>Reduce Shuffle Bytes</th>
         </tr>
         {% for row in result.batch_rows %}
           <tr>
@@ -251,6 +259,8 @@
             <td>{{ row.candidate_reduction }}</td>
             <td>{{ row.pruning_ratio }}</td>
             <td>{{ row.runtime }}</td>
+            <td>{{ row.map_output_bytes }}</td>
+            <td>{{ row.reduce_shuffle_bytes }}</td>
           </tr>
         {% endfor %}
       </table>
@@ -297,6 +307,8 @@
           <th>Candidate Reduction</th>
           <th>Pruning Ratio</th>
           <th>Runtime (s)</th>
+          <th>Map Output Bytes</th>
+          <th>Reduce Shuffle Bytes</th>
         </tr>
         {% for row in result.history_rows %}
           <tr>
@@ -310,6 +322,8 @@
             <td>{{ row.candidate_reduction }}</td>
             <td>{{ row.pruning_ratio }}</td>
             <td>{{ row.runtime_sec }}</td>
+            <td>{{ row.map_output_bytes }}</td>
+            <td>{{ row.reduce_shuffle_bytes }}</td>
           </tr>
         {% endfor %}
       </table>

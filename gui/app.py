@@ -27,6 +27,17 @@ for d in [STATIC_DIR, GENERATED_DIR, UPLOADS_DIR]:
 
 app = Flask(__name__)
 
+HISTORY_FIELDS = [
+    'timestamp', 'dataset_hdfs_dir', 'query_nodes', 'method', 'k',
+    'candidates', 'matches', 'candidate_reduction', 'pruning_ratio',
+    'runtime_sec', 'map_output_bytes', 'reduce_shuffle_bytes'
+]
+
+DATASET_REGISTRY_FIELDS = [
+    'timestamp', 'dataset_name', 'label', 'nodes',
+    'hdfs_dir', 'hdfs_target', 'local_processed_file'
+]
+
 
 def sanitize_name(text: str) -> str:
     text = text.strip()
@@ -38,6 +49,36 @@ def safe_tag_from_hdfs_dir(hdfs_dir: str) -> str:
     tag = hdfs_dir.strip().strip('/').replace('/', '_')
     tag = re.sub(r'[^A-Za-z0-9._-]+', '_', tag)
     return tag or 'dataset'
+
+
+def ensure_csv_header(path: Path, fields):
+    if not path.exists():
+        with open(path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=fields)
+            writer.writeheader()
+        return
+
+    with open(path, 'r', newline='', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        first_row = next(reader, None)
+
+    if first_row == fields:
+        return
+
+    old_rows = []
+    try:
+        with open(path, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                old_rows.append(row)
+    except Exception:
+        old_rows = []
+
+    with open(path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        for row in old_rows:
+            writer.writerow({field: row.get(field, '') for field in fields})
 
 
 def parse_subset_sizes(text: str):
@@ -171,6 +212,17 @@ def candidate_reduction(baseline_candidates: int, method_candidates: int) -> int
     return baseline_candidates - method_candidates
 
 
+def extract_hadoop_counters(log_text: str):
+    def sum_counter(name: str) -> int:
+        pattern = re.compile(rf'{re.escape(name)}=(\d+)')
+        return sum(int(x) for x in pattern.findall(log_text or ''))
+
+    return {
+        'map_output_bytes': sum_counter('Map output bytes'),
+        'reduce_shuffle_bytes': sum_counter('Reduce shuffle bytes'),
+    }
+
+
 def run_pipeline_once(adj_dir: str, hdfs_query_path: str, base_out: str, mode: str, k: int, jar_path: str):
     start = time.time()
     proc = subprocess.run(
@@ -189,8 +241,12 @@ def run_pipeline_once(adj_dir: str, hdfs_query_path: str, base_out: str, mode: s
         capture_output=True,
     )
     elapsed = round(time.time() - start, 3)
+
+    combined_log = ((proc.stdout or '') + '\n' + (proc.stderr or '')).strip()
     if proc.returncode != 0:
-        raise RuntimeError(proc.stderr or proc.stdout)
+        raise RuntimeError(combined_log)
+
+    counters = extract_hadoop_counters(combined_log)
 
     cand_path = f'{base_out}/candidates_{mode}/part-r-00000'
     match_path = f'{base_out}/matches_{mode}/part-r-00000'
@@ -203,33 +259,27 @@ def run_pipeline_once(adj_dir: str, hdfs_query_path: str, base_out: str, mode: s
         'candidate_count': candidate_count(cand_path),
         'match_count': line_count(match_path),
         'match_example': mapping,
-        'stdout': proc.stdout,
+        'stdout': combined_log,
         'cand_path': cand_path,
         'match_path': match_path,
+        'map_output_bytes': counters['map_output_bytes'],
+        'reduce_shuffle_bytes': counters['reduce_shuffle_bytes'],
     }
 
 
 def ensure_history_header():
-    if HISTORY_CSV.exists():
-        return
-    with open(HISTORY_CSV, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            'timestamp', 'dataset_hdfs_dir', 'query_nodes', 'method', 'k',
-            'candidates', 'matches', 'candidate_reduction', 'pruning_ratio', 'runtime_sec'
-        ])
+    ensure_csv_header(HISTORY_CSV, HISTORY_FIELDS)
 
 
-def append_history_row(row):
+def append_history_row(row_dict):
     ensure_history_header()
     with open(HISTORY_CSV, 'a', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(row)
+        writer = csv.DictWriter(f, fieldnames=HISTORY_FIELDS)
+        writer.writerow({field: row_dict.get(field, '') for field in HISTORY_FIELDS})
 
 
 def load_history(limit=20):
-    if not HISTORY_CSV.exists():
-        return []
+    ensure_history_header()
     rows = []
     with open(HISTORY_CSV, 'r', newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -239,36 +289,28 @@ def load_history(limit=20):
 
 
 def ensure_dataset_registry_header():
-    if DATASET_REGISTRY_CSV.exists():
-        return
-    with open(DATASET_REGISTRY_CSV, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            'timestamp', 'dataset_name', 'label', 'nodes',
-            'hdfs_dir', 'hdfs_target', 'local_processed_file'
-        ])
+    ensure_csv_header(DATASET_REGISTRY_CSV, DATASET_REGISTRY_FIELDS)
 
 
 def append_dataset_registry_rows(dataset_name, created_targets):
     ensure_dataset_registry_header()
     timestamp = datetime.now().isoformat(timespec='seconds')
     with open(DATASET_REGISTRY_CSV, 'a', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
+        writer = csv.DictWriter(f, fieldnames=DATASET_REGISTRY_FIELDS)
         for item in created_targets:
-            writer.writerow([
-                timestamp,
-                dataset_name,
-                item['label'],
-                item['nodes'],
-                item['hdfs_dir'],
-                item['hdfs_target'],
-                item['local_processed_file'],
-            ])
+            writer.writerow({
+                'timestamp': timestamp,
+                'dataset_name': dataset_name,
+                'label': item['label'],
+                'nodes': item['nodes'],
+                'hdfs_dir': item['hdfs_dir'],
+                'hdfs_target': item['hdfs_target'],
+                'local_processed_file': item['local_processed_file'],
+            })
 
 
 def load_dataset_registry():
-    if not DATASET_REGISTRY_CSV.exists():
-        return []
+    ensure_dataset_registry_header()
     rows = []
     with open(DATASET_REGISTRY_CSV, 'r', newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -591,18 +633,20 @@ def index():
                     render_real_match_context(result['adj_dir'], metrics['match_example'], match_png)
                     result['match_png'] = 'static/match.png'
 
-                append_history_row([
-                    datetime.now().isoformat(timespec='seconds'),
-                    result['adj_dir'],
-                    count_query_nodes(result['nodes']),
-                    metrics['mode'],
-                    metrics['k'],
-                    metrics['candidate_count'],
-                    metrics['match_count'],
-                    '',
-                    '',
-                    metrics['cpu_time_sec'],
-                ])
+                append_history_row({
+                    'timestamp': datetime.now().isoformat(timespec='seconds'),
+                    'dataset_hdfs_dir': result['adj_dir'],
+                    'query_nodes': count_query_nodes(result['nodes']),
+                    'method': metrics['mode'],
+                    'k': metrics['k'],
+                    'candidates': metrics['candidate_count'],
+                    'matches': metrics['match_count'],
+                    'candidate_reduction': '',
+                    'pruning_ratio': '',
+                    'runtime_sec': metrics['cpu_time_sec'],
+                    'map_output_bytes': metrics['map_output_bytes'],
+                    'reduce_shuffle_bytes': metrics['reduce_shuffle_bytes'],
+                })
 
             elif action == 'run_compare':
                 runs = []
@@ -642,24 +686,28 @@ def index():
                         'k': '-' if row['mode'] == 'baseline' else row['k'],
                         'candidates': row['candidate_count'],
                         'matches': row['match_count'],
-                        'runtime': row['cpu_time_sec'],
                         'candidate_reduction': reduction,
                         'pruning_ratio': ratio,
+                        'runtime': row['cpu_time_sec'],
                         'match_example': row['match_example'],
+                        'map_output_bytes': row['map_output_bytes'],
+                        'reduce_shuffle_bytes': row['reduce_shuffle_bytes'],
                     })
 
-                    append_history_row([
-                        datetime.now().isoformat(timespec='seconds'),
-                        result['adj_dir'],
-                        count_query_nodes(result['nodes']),
-                        row['mode'],
-                        row['k'],
-                        row['candidate_count'],
-                        row['match_count'],
-                        reduction,
-                        ratio,
-                        row['cpu_time_sec'],
-                    ])
+                    append_history_row({
+                        'timestamp': datetime.now().isoformat(timespec='seconds'),
+                        'dataset_hdfs_dir': result['adj_dir'],
+                        'query_nodes': count_query_nodes(result['nodes']),
+                        'method': row['mode'],
+                        'k': row['k'],
+                        'candidates': row['candidate_count'],
+                        'matches': row['match_count'],
+                        'candidate_reduction': reduction,
+                        'pruning_ratio': ratio,
+                        'runtime_sec': row['cpu_time_sec'],
+                        'map_output_bytes': row['map_output_bytes'],
+                        'reduce_shuffle_bytes': row['reduce_shuffle_bytes'],
+                    })
 
                 result['comparison_rows'] = comparison_rows
                 result['stdout'] = "\n\n".join(r['stdout'] for r in runs if r.get('stdout'))
@@ -725,20 +773,24 @@ def index():
                             'candidate_reduction': reduction,
                             'pruning_ratio': ratio,
                             'runtime': row['cpu_time_sec'],
+                            'map_output_bytes': row['map_output_bytes'],
+                            'reduce_shuffle_bytes': row['reduce_shuffle_bytes'],
                         })
 
-                        append_history_row([
-                            datetime.now().isoformat(timespec='seconds'),
-                            dataset_dir,
-                            count_query_nodes(result['nodes']),
-                            row['mode'],
-                            row['k'],
-                            row['candidate_count'],
-                            row['match_count'],
-                            reduction,
-                            ratio,
-                            row['cpu_time_sec'],
-                        ])
+                        append_history_row({
+                            'timestamp': datetime.now().isoformat(timespec='seconds'),
+                            'dataset_hdfs_dir': dataset_dir,
+                            'query_nodes': count_query_nodes(result['nodes']),
+                            'method': row['mode'],
+                            'k': row['k'],
+                            'candidates': row['candidate_count'],
+                            'matches': row['match_count'],
+                            'candidate_reduction': reduction,
+                            'pruning_ratio': ratio,
+                            'runtime_sec': row['cpu_time_sec'],
+                            'map_output_bytes': row['map_output_bytes'],
+                            'reduce_shuffle_bytes': row['reduce_shuffle_bytes'],
+                        })
 
                         batch_stdout_parts.append(row['stdout'])
 
