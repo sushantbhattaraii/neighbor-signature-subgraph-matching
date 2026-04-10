@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import time
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -51,7 +52,7 @@ def parse_query_form(nodes_text: str, edges_text: str, directed: bool):
     return '\n'.join(lines) + '\n'
 
 
-def render_graph(query_path: Path, output_png: Path, highlight_nodes=None):
+def render_query_graph(query_path: Path, output_png: Path, highlight_nodes=None):
     directed = False
     G = nx.DiGraph()
     with open(query_path, 'r', encoding='utf-8') as fh:
@@ -260,6 +261,121 @@ def preprocess_and_upload_dataset(file_storage, dataset_name, dataset_directed, 
     }
 
 
+def load_adjacency_from_hdfs(adj_dir: str):
+    data = hdfs_cat(f"{adj_dir.rstrip('/')}/part-00000")
+    if not data.strip():
+        raise RuntimeError(f"Could not read adjacency file from {adj_dir}/part-00000")
+
+    adj = {}
+    labels = {}
+    edge_labels = defaultdict(dict)
+
+    for raw in data.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split('\t')
+        if len(parts) < 3:
+            continue
+        node_id = parts[0]
+        node_label = parts[1]
+        nbrs = parts[2]
+
+        labels[node_id] = node_label
+        adj[node_id] = set()
+
+        if nbrs != '-':
+            for tok in nbrs.split(','):
+                sub = tok.split(':')
+                if len(sub) >= 3:
+                    nbr_id, nbr_label, e_label = sub[0], sub[1], sub[2]
+                elif len(sub) == 2:
+                    nbr_id, nbr_label = sub[0], sub[1]
+                    e_label = 'E'
+                else:
+                    nbr_id = sub[0]
+                    nbr_label = '?'
+                    e_label = 'E'
+                adj[node_id].add(nbr_id)
+                edge_labels[node_id][nbr_id] = e_label
+                labels.setdefault(nbr_id, nbr_label)
+
+    return adj, labels, edge_labels
+
+
+def render_real_match_context(adj_dir: str, mapping: dict, output_png: Path):
+    adj, labels, edge_labels = load_adjacency_from_hdfs(adj_dir)
+
+    matched_nodes = set(mapping.values())
+    context_nodes = set(matched_nodes)
+
+    for n in list(matched_nodes):
+        for nbr in adj.get(n, set()):
+            context_nodes.add(nbr)
+
+    G = nx.Graph()
+
+    for n in context_nodes:
+        G.add_node(n, label=labels.get(n, '?'), matched=(n in matched_nodes))
+
+    for src in context_nodes:
+        for dst in adj.get(src, set()):
+            if dst in context_nodes and src <= dst:
+                is_match_edge = (src in matched_nodes and dst in matched_nodes)
+                label = edge_labels.get(src, {}).get(dst, edge_labels.get(dst, {}).get(src, 'E'))
+                G.add_edge(src, dst, label=label, matched=is_match_edge)
+
+    plt.figure(figsize=(8, 6))
+    pos = nx.spring_layout(G, seed=7)
+
+    node_colors = []
+    node_sizes = []
+    for n in G.nodes():
+        if n in matched_nodes:
+            node_colors.append('orange')
+            node_sizes.append(1400)
+        else:
+            node_colors.append('lightgray')
+            node_sizes.append(800)
+
+    edge_colors = []
+    widths = []
+    for u, v in G.edges():
+        if G.edges[u, v].get('matched'):
+            edge_colors.append('red')
+            widths.append(2.8)
+        else:
+            edge_colors.append('gray')
+            widths.append(1.2)
+
+    nx.draw(
+        G, pos,
+        with_labels=True,
+        node_color=node_colors,
+        node_size=node_sizes,
+        edge_color=edge_colors,
+        width=widths,
+        font_size=8
+    )
+    nx.draw_networkx_labels(
+        G, pos,
+        labels={n: f"{n}\n{G.nodes[n].get('label','')}" for n in G.nodes()},
+        font_size=8
+    )
+
+    edge_label_subset = {}
+    for u, v in G.edges():
+        if G.edges[u, v].get('matched'):
+            edge_label_subset[(u, v)] = G.edges[u, v].get('label', 'E')
+    if edge_label_subset:
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_label_subset, font_size=8)
+
+    plt.title('Example Match Highlighted in Original Graph Context')
+    plt.tight_layout()
+    plt.savefig(output_png, bbox_inches='tight')
+    plt.close()
+
+
 @app.route('/history.csv')
 def history_csv():
     ensure_history_header()
@@ -318,7 +434,7 @@ def index():
         query_path.write_text(query_text, encoding='utf-8')
 
         query_png = STATIC_DIR / 'query.png'
-        render_graph(query_path, query_png)
+        render_query_graph(query_path, query_png)
         result['query_png'] = 'static/query.png'
 
         if action == 'draw_only':
@@ -367,7 +483,7 @@ def index():
                 result['stdout'] = metrics['stdout']
                 if metrics['match_example']:
                     match_png = STATIC_DIR / 'match.png'
-                    render_graph(query_path, match_png, highlight_nodes=set(metrics['match_example'].keys()))
+                    render_real_match_context(result['adj_dir'], metrics['match_example'], match_png)
                     result['match_png'] = 'static/match.png'
 
                 append_history_row([
@@ -446,7 +562,7 @@ def index():
                 best = runs[-1]
                 if best['match_example']:
                     match_png = STATIC_DIR / 'match.png'
-                    render_graph(query_path, match_png, highlight_nodes=set(best['match_example'].keys()))
+                    render_real_match_context(result['adj_dir'], best['match_example'], match_png)
                     result['match_png'] = 'static/match.png'
 
             result['history_rows'] = load_history()

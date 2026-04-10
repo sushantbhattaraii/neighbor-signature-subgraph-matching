@@ -125,9 +125,10 @@
         <img src="/{{ result.query_png }}" alt="Query graph">
       </div>
       <div class="card">
-        <h3>Example match view</h3>
+        <h3>Example match highlighted in original graph context</h3>
         {% if result.match_png %}
-          <img src="/{{ result.match_png }}" alt="Example match">
+          <img src="/{{ result.match_png }}" alt="Real match context">
+          <p class="muted">Orange nodes are the matched data nodes. Gray nodes are 1-hop surrounding context. Red edges are edges among the matched nodes.</p>
         {% else %}
           <p>No match image yet.</p>
         {% endif %}
