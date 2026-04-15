@@ -287,6 +287,11 @@ def load_history(limit=20):
     rows.reverse()
     return rows[:limit]
 
+def clear_history():
+    ensure_history_header()
+    with open(HISTORY_CSV, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=HISTORY_FIELDS)
+        writer.writeheader()
 
 def ensure_dataset_registry_header():
     ensure_csv_header(DATASET_REGISTRY_CSV, DATASET_REGISTRY_FIELDS)
@@ -570,6 +575,18 @@ def index():
         result['num_labels'] = request.form.get('num_labels', '8').strip()
         result['subset_sizes'] = request.form.get('subset_sizes', '1000,2000,3000').strip()
         action = request.form.get('action', 'draw_only')
+
+        if action == 'clear_history':
+            clear_history()
+            result['history_rows'] = load_history()
+            result['dataset_rows'] = load_dataset_registry()
+            result['single_metrics'] = None
+            result['comparison_rows'] = None
+            result['batch_rows'] = None
+            result['upload_status'] = None
+            result['stdout'] = None
+            result['error'] = None
+            return render_template('index.html', result=result)
 
         query_text = parse_query_form(result['nodes'], result['edges'], result['directed'])
         query_path = GENERATED_DIR / 'query.txt'
