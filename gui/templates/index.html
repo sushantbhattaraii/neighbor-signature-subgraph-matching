@@ -18,6 +18,11 @@
     pre { white-space: pre-wrap; word-wrap: break-word; }
     .success { color: #0a6; }
     .error { color: #a00; }
+    .history-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 12px;
+    }
   </style>
 </head>
 <body>
@@ -330,6 +335,17 @@
     {% else %}
       <p>No run history yet.</p>
     {% endif %}
+    <form method="post">
+        <div class="history-actions">
+          <button
+            type="submit"
+            name="action"
+            value="clear_history"
+            onclick="return confirm('Delete all saved history records?');">
+            Clear All History
+          </button>
+        </div>
+      </form>
   </div>
 
   {% if result.error %}
