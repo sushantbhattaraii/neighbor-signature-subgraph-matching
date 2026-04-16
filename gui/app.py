@@ -574,8 +574,8 @@ def history_csv():
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    default_nodes = 'q0,L0\nq1,L1\nq2,L2'
-    default_edges = 'q0,q1,E\nq1,q2,E'
+    default_nodes = 'q0,L0\nq1,L1\nq2,L2\nq3,L3\nq4,L4\nq5,L5\nq6,L6'
+    default_edges = 'q0,q1,E\nq0,q2,E\nq1,q2,E\nq2,q3,E\nq3,q6,E\nq2,q5,E\nq4,q5,E\nq5,q6,E\nq4,q6,E\nq2,q4,E'
     default_adj_dir = os.environ.get('HDFS_ADJ_DIR', '/projects/graphmatch/input/adj')
     default_base_out = os.environ.get('HDFS_BASE_OUTPUT', '/projects/graphmatch/output/gui')
     default_hdfs_query_path = os.environ.get('HDFS_GUI_QUERY_PATH', '/projects/graphmatch/input/gui/query.txt')
