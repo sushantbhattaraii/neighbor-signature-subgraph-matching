@@ -16,7 +16,13 @@ public class SubgraphVerificationDriver {
         }
 
         Configuration conf = new Configuration();
+
+        // Increase timeout for long-running exact verification
+        conf.setLong("mapreduce.task.timeout", 3600000L);           // 1 hour
+        conf.setLong("mapreduce.task.stuck.timeout-ms", 3600000L); // 1 hour
+
         Job job = Job.getInstance(conf, "NeighborSigMatch - Subgraph Verification");
+        
         job.setJarByClass(SubgraphVerificationDriver.class);
 
         job.setMapperClass(SubgraphVerificationMapper.class);

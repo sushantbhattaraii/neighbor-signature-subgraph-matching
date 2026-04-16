@@ -36,6 +36,13 @@ public class SubgraphVerificationReducer extends Reducer<IntWritable, Text, Text
     private final Text outVal = new Text();
     private long matchCounter = 0L;
 
+    // progress heartbeat support
+    private long localBacktrackStates = 0L;
+    private static final long PROGRESS_INTERVAL = 10000L;
+
+    // cache neighbor -> edge-label maps to avoid rebuilding them repeatedly
+    private final Map<String, Map<String, String>> edgeLabelCache = new HashMap<>();
+
     @Override
     protected void setup(Context context) throws IOException {
         URI[] cacheFiles = context.getCacheFiles();
@@ -53,6 +60,7 @@ public class SubgraphVerificationReducer extends Reducer<IntWritable, Text, Text
         for (Text value : values) {
             DataNodeRecord record = DataNodeRecord.parseLine(value.toString());
             candidateAdjacency.put(record.getNodeId(), record);
+            edgeLabelCache.put(record.getNodeId(), buildNeighborEdgeLabelMap(record));
         }
         context.getCounter(VerificationCounters.CANDIDATE_SUBGRAPH_NODES).increment(candidateAdjacency.size());
 
@@ -70,11 +78,20 @@ public class SubgraphVerificationReducer extends Reducer<IntWritable, Text, Text
                            Set<String> usedDataNodes,
                            Context context) throws IOException, InterruptedException {
         context.getCounter(VerificationCounters.BACKTRACK_STATES).increment(1);
+        localBacktrackStates++;
+
+        if (localBacktrackStates % PROGRESS_INTERVAL == 0) {
+            context.setStatus("Verification backtracking states=" + localBacktrackStates + ", matches=" + matchCounter);
+            context.progress();
+        }
+
         if (depth == queryOrder.size()) {
             matchCounter++;
             context.getCounter(VerificationCounters.VERIFIED_MATCHES).increment(1);
             outKey.set(String.format("match-%06d", matchCounter));
             outVal.set(formatAssignment(assignment));
+            context.setStatus("Verified matches=" + matchCounter);
+            context.progress();
             context.write(outKey, outVal);
             return;
         }
@@ -108,7 +125,8 @@ public class SubgraphVerificationReducer extends Reducer<IntWritable, Text, Text
     private boolean isConsistent(String queryNode,
                                  DataNodeRecord dataRecord,
                                  Map<String, String> currentAssignment) {
-        Map<String, String> dataNeighborEdgeLabels = buildNeighborEdgeLabelMap(dataRecord);
+        Map<String, String> dataNeighborEdgeLabels =
+        edgeLabelCache.computeIfAbsent(dataRecord.getNodeId(), k -> buildNeighborEdgeLabelMap(dataRecord));
         for (String assignedQueryNode : currentAssignment.keySet()) {
             String assignedDataNode = currentAssignment.get(assignedQueryNode);
             boolean queryForward = queryGraph.hasEdge(queryNode, assignedQueryNode);
@@ -126,7 +144,9 @@ public class SubgraphVerificationReducer extends Reducer<IntWritable, Text, Text
                 if (assignedDataRecord == null) {
                     return false;
                 }
-                String actualBackLabel = buildNeighborEdgeLabelMap(assignedDataRecord).get(dataRecord.getNodeId());
+                Map<String, String> assignedNeighborEdgeLabels =
+                        edgeLabelCache.computeIfAbsent(assignedDataNode, k -> buildNeighborEdgeLabelMap(assignedDataRecord));
+                String actualBackLabel = assignedNeighborEdgeLabels.get(dataRecord.getNodeId());
                 String expectedBackLabel = queryGraph.edgeLabel(assignedQueryNode, queryNode);
                 if (actualBackLabel == null || !actualBackLabel.equals(expectedBackLabel)) {
                     return false;
