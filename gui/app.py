@@ -172,6 +172,10 @@ def hdfs_put_file(local_path: Path, hdfs_path: str):
     if proc2.returncode != 0:
         raise RuntimeError(proc2.stderr or proc2.stdout)
 
+def hdfs_rm_dir_if_exists(hdfs_dir: str):
+    # Ignore errors if the directory is already missing
+    run_cmd(['hdfs', 'dfs', '-rm', '-r', '-f', hdfs_dir])
+
 
 def candidate_count(path: str) -> int:
     total = 0
@@ -224,6 +228,9 @@ def extract_hadoop_counters(log_text: str):
 
 
 def run_pipeline_once(adj_dir: str, hdfs_query_path: str, base_out: str, mode: str, k: int, jar_path: str):
+    # Remove previous output root before rerunning
+    hdfs_rm_dir_if_exists(base_out)
+
     start = time.time()
     proc = subprocess.run(
         [
