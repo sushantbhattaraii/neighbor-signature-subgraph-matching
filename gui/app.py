@@ -332,6 +332,50 @@ def load_dataset_registry():
         unique_rows.append(row)
     return unique_rows
 
+def hdfs_rm_dir(hdfs_dir: str):
+    proc = run_cmd(['hdfs', 'dfs', '-rm', '-r', '-f', hdfs_dir])
+    # Ignore errors if the directory is already missing
+    return proc
+
+
+def clear_dataset_registry():
+    ensure_dataset_registry_header()
+    with open(DATASET_REGISTRY_CSV, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=DATASET_REGISTRY_FIELDS)
+        writer.writeheader()
+
+
+def clear_registered_datasets():
+    ensure_dataset_registry_header()
+
+    rows = []
+    with open(DATASET_REGISTRY_CSV, 'r', newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    # delete unique HDFS directories
+    seen_dirs = set()
+    for row in rows:
+        hdfs_dir = row.get('hdfs_dir', '').strip()
+        if hdfs_dir and hdfs_dir not in seen_dirs:
+            seen_dirs.add(hdfs_dir)
+            hdfs_rm_dir(hdfs_dir)
+
+    # delete local processed adjacency files
+    seen_files = set()
+    for row in rows:
+        local_file = row.get('local_processed_file', '').strip()
+        if local_file and local_file not in seen_files:
+            seen_files.add(local_file)
+            p = Path(local_file)
+            if p.exists():
+                try:
+                    p.unlink()
+                except Exception:
+                    pass
+
+    # finally clear the registry csv
+    clear_dataset_registry()
 
 def count_query_nodes(nodes_text: str) -> int:
     return len([x for x in nodes_text.splitlines() if x.strip()])
@@ -575,6 +619,18 @@ def index():
         result['num_labels'] = request.form.get('num_labels', '8').strip()
         result['subset_sizes'] = request.form.get('subset_sizes', '1000,2000,3000').strip()
         action = request.form.get('action', 'draw_only')
+
+        if action == 'clear_datasets':
+            clear_registered_datasets()
+            result['dataset_rows'] = load_dataset_registry()
+            result['history_rows'] = load_history()
+            result['single_metrics'] = None
+            result['comparison_rows'] = None
+            result['batch_rows'] = None
+            result['upload_status'] = None
+            result['stdout'] = None
+            result['error'] = None
+            return render_template('index.html', result=result)
 
         if action == 'clear_history':
             clear_history()
