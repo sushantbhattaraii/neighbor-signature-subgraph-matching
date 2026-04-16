@@ -294,6 +294,19 @@
     {% else %}
       <p>No registered datasets yet.</p>
     {% endif %}
+
+    <form method="post">
+      <div class="card-actions">
+        <button
+          type="submit"
+          name="action"
+          value="clear_datasets"
+          onclick="return confirm('Delete all registered adjacency datasets and subset directories?');">
+          Clear All Datasets
+        </button>
+      </div>
+    </form>
+
   </div>
 
   <div class="card">
