@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv
+
+# Java / build
+build/
+dist/
+*.class
+
+# GUI generated/runtime files
+gui/generated/
+gui/uploads/
+gui/static/*.png
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Hadoop / logs
+*.log
