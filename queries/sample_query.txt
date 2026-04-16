@@ -2,5 +2,17 @@ directed=false
 v q0 L0
 v q1 L1
 v q2 L2
+v q3 L3
+v q4 L4
+v q5 L5
+v q6 L6
 e q0 q1 E
+e q0 q2 E
 e q1 q2 E
+e q2 q3 E
+e q3 q6 E
+e q2 q5 E
+e q4 q5 E
+e q5 q6 E
+e q4 q6 E
+e q2 q4 E
